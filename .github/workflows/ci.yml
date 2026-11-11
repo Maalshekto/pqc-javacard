@@ -1,0 +1,45 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "11"
+          cache: maven
+
+      - name: Cache de l'outillage Java Card
+        uses: actions/cache@v4
+        with:
+          path: |
+            .tools/sdks
+            .tools/ant-javacard.jar
+            ~/.m2/repository/com/licel/jcardsim
+          key: javacard-tools-${{ hashFiles('tools/bootstrap.sh') }}
+
+      - name: Outillage (kit Java Card, jCardSim, ant-javacard)
+        run: ./tools/bootstrap.sh
+
+      - name: Tests sur simulateur et conversion .cap
+        run: mvn -B verify
+
+      - name: Vérifier que le .cap a été produit
+        run: test -s target/pqc-javacard.cap
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: pqc-javacard-cap
+          path: target/pqc-javacard.cap

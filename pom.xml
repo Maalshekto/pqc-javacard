@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>com.pqcops</groupId>
+  <artifactId>pqc-javacard</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>pqc-javacard</name>
+  <description>Applet Java Card post-quantique (ML-KEM, ML-DSA) — prototype pédagogique</description>
+  <url>https://pqc-ops.com/</url>
+
+  <licenses>
+    <license>
+      <name>Apache License, Version 2.0</name>
+      <url>https://www.apache.org/licenses/LICENSE-2.0.txt</url>
+    </license>
+  </licenses>
+
+  <properties>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+    <!-- Code de l'applet : bytecode Java 7 (classe 51), accepté par le convertisseur Java Card 3.0.5 -->
+    <applet.java.version>1.7</applet.java.version>
+    <!-- Tests : Java 11 -->
+    <test.java.version>11</test.java.version>
+
+    <!-- Identifiants : RID F0 = catégorie propriétaire non enregistrée (ISO 7816-5), "PQCOPS" -->
+    <cap.package.aid>F05051434F5053</cap.package.aid>
+    <cap.applet.aid>F05051434F505301</cap.applet.aid>
+    <cap.version>0.1</cap.version>
+    <cap.jckit>${project.basedir}/.tools/sdks/jc305u4_kit</cap.jckit>
+
+    <jcardsim.version>3.0.5-SNAPSHOT</jcardsim.version>
+    <junit.version>5.11.4</junit.version>
+  </properties>
+
+  <dependencies>
+    <!-- Fournit l'API Java Card (javacard.framework.*) et le simulateur. Jamais embarqué dans le .cap. -->
+    <dependency>
+      <groupId>com.licel</groupId>
+      <artifactId>jcardsim</artifactId>
+      <version>${jcardsim.version}</version>
+      <scope>provided</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>${junit.version}</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+        <version>3.13.0</version>
+        <configuration>
+          <source>${applet.java.version}</source>
+          <target>${applet.java.version}</target>
+          <testSource>${test.java.version}</testSource>
+          <testTarget>${test.java.version}</testTarget>
+          <showWarnings>true</showWarnings>
+        </configuration>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <version>3.5.2</version>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!--
+      Conversion en fichier .cap avec le vrai convertisseur Java Card.
+      Activé automatiquement dès que tools/bootstrap.sh a été exécuté.
+      C'est ce qui garantit que le code tourne sur une carte réelle :
+      jCardSim, lui, accepte du Java qu'aucune carte n'exécuterait (int, String, etc.).
+    -->
+    <profile>
+      <id>cap</id>
+      <activation>
+        <file>
+          <exists>${basedir}/.tools/ant-javacard.jar</exists>
+        </file>
+      </activation>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-antrun-plugin</artifactId>
+            <version>3.1.0</version>
+            <executions>
+              <execution>
+                <id>convertir-cap</id>
+                <phase>package</phase>
+                <goals>
+                  <goal>run</goal>
+                </goals>
+                <configuration>
+                  <target>
+                    <taskdef name="javacard" classname="pro.javacard.ant.JavaCard"
+                             classpath="${project.basedir}/.tools/ant-javacard.jar"/>
+                    <javacard jckit="${cap.jckit}">
+                      <cap aid="${cap.package.aid}"
+                           version="${cap.version}"
+                           sources="${project.basedir}/src/main/java"
+                           output="${project.build.directory}/pqc-javacard.cap">
+                        <applet class="com.pqcops.javacard.PqcApplet" aid="${cap.applet.aid}"/>
+                      </cap>
+                    </javacard>
+                  </target>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>
