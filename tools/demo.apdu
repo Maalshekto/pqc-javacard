@@ -1,0 +1,61 @@
+# ============================================================================
+# Visite guidée de l'applet — ./tools/shell.sh < tools/demo.apdu
+# ============================================================================
+
+# 1. À la mise sous tension, aucune applet n'est sélectionnée.
+#    Une carte peut en héberger plusieurs : sans SELECT, elle ne sait pas à qui parler (6986).
+info
+
+# 2. SELECT par AID (identifiant d'application). La carte appelle select() sur l'applet.
+select
+
+# 3. GET INFO : PIN de laboratoire actif, 3 essais, tampon de 1 536 octets, aucun algorithme encore.
+info
+
+# 4. Changer le PIN sans s'être authentifié : refusé (6982).
+change 246810
+
+# 5. Mauvais PIN : le compteur d'essais diminue (63C2 = 2 essais restants).
+verify 0000
+
+# 6. VERIFY sans données : interroger le compteur sans consommer d'essai.
+verify
+
+# 7. Bon PIN : le compteur revient à 3, l'état « PIN vérifié » est actif.
+verify 1234
+info
+
+# 8. Changement de PIN, désormais autorisé. Le drapeau « PIN par défaut » disparaît.
+change 246810
+info
+
+# 9. APDU étendu : 1 184 octets, la taille d'une clé publique ML-KEM-768.
+#    Un APDU classique est limité à 255 octets de données.
+echo-alea 1184
+
+# 10. Au-delà de la taille du tampon de l'applet : refus (6700).
+echo-alea 1600
+
+# 11. Coupure d'alimentation : la RAM est effacée, il faut resélectionner l'applet
+#     et représenter le PIN. Le PIN, lui, est en mémoire persistante :
+#     l'ancien (1234) est refusé, le nouveau (246810) accepté.
+reset
+select
+info
+verify 1234
+verify 246810
+
+# 12. APDU brut tapé en hexadécimal : instruction inconnue (6D00), puis classe inconnue (6E00).
+80 7E 00 00 00
+90 01 00 00 00
+
+# 13. Jalon 1 : la carte calcule elle-même SHA-3 et SHAKE (Keccak en arithmétique 16 bits).
+#     Chaque résultat est comparé à une implémentation de référence (JDK, BouncyCastle).
+sha3-256 "abc"
+sha3-512 ""
+#     SHAKE est une fonction à sortie extensible : on choisit la longueur produite.
+#     ML-KEM s'en sert pour générer sa matrice (SHAKE128) et son aléa (SHAKE256).
+shake128 32 ""
+shake256 200 "PQC-Ops"
+
+quitter

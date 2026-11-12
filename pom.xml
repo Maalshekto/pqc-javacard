@@ -29,11 +29,14 @@
     <!-- Identifiants : RID F0 = catégorie propriétaire non enregistrée (ISO 7816-5), "PQCOPS" -->
     <cap.package.aid>F05051434F5053</cap.package.aid>
     <cap.applet.aid>F05051434F505301</cap.applet.aid>
-    <cap.version>0.1</cap.version>
+    <cap.version>0.2</cap.version>
     <cap.jckit>${project.basedir}/.tools/sdks/jc305u4_kit</cap.jckit>
 
     <jcardsim.version>3.0.5-SNAPSHOT</jcardsim.version>
     <junit.version>5.11.4</junit.version>
+
+    <!-- Tests d'exercice (code à trous) : exclus par défaut, activés par -Pexercices -->
+    <exercices.exclus>exercice</exercices.exclus>
   </properties>
 
   <dependencies>
@@ -70,11 +73,32 @@
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-surefire-plugin</artifactId>
         <version>3.5.2</version>
+        <configuration>
+          <excludedGroups>${exercices.exclus}</excludedGroups>
+        </configuration>
+      </plugin>
+      <!-- Terminal APDU interactif : ./tools/shell.sh -->
+      <plugin>
+        <groupId>org.codehaus.mojo</groupId>
+        <artifactId>exec-maven-plugin</artifactId>
+        <version>3.5.0</version>
+        <configuration>
+          <mainClass>com.pqcops.javacard.tools.ApduShell</mainClass>
+          <classpathScope>test</classpathScope>
+        </configuration>
       </plugin>
     </plugins>
   </build>
 
   <profiles>
+    <!-- mvn test -Pexercices -Dtest=ModQTest : lance aussi les tests des exercices à trous -->
+    <profile>
+      <id>exercices</id>
+      <properties>
+        <exercices.exclus>aucun</exercices.exclus>
+      </properties>
+    </profile>
+
     <!--
       Conversion en fichier .cap avec le vrai convertisseur Java Card.
       Activé automatiquement dès que tools/bootstrap.sh a été exécuté.

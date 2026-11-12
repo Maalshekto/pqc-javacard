@@ -25,7 +25,11 @@ import javacard.framework.Util;
 import javacardx.apdu.ExtendedLength;
 
 /**
- * Applet PQC — jalon 0 : socle (PIN, APDU étendus, protocole).
+ * Applet PQC.
+ * <ul>
+ *   <li>Jalon 0 : socle (PIN, APDU étendus, protocole).</li>
+ *   <li>Jalon 1 : Keccak / SHA-3 / SHAKE en 16 bits, exposé par la commande de test HASH.</li>
+ * </ul>
  *
  * <p>Contraintes Java Card 3.0.5 respectées volontairement : pas de {@code int}, pas de
  * {@code long}, pas de {@code String}, aucune allocation après l'installation.
@@ -36,7 +40,7 @@ public final class PqcApplet extends Applet implements ExtendedLength {
 
     // --- Version de l'applet -------------------------------------------------------------
     static final byte VERSION_MAJOR = (byte) 0x00;
-    static final byte VERSION_MINOR = (byte) 0x01;
+    static final byte VERSION_MINOR = (byte) 0x02;
 
     // --- Classes et instructions -----------------------------------------------------------
     static final byte CLA_ISO = (byte) 0x00;
@@ -46,6 +50,7 @@ public final class PqcApplet extends Applet implements ExtendedLength {
     static final byte INS_CHANGE_PIN = (byte) 0x24;   // ISO 7816-4 (données = nouveau PIN)
     static final byte INS_GET_INFO = (byte) 0x01;     // propriétaire
     static final byte INS_ECHO = (byte) 0x02;         // propriétaire, test des APDU étendus
+    static final byte INS_HASH = (byte) 0x10;         // propriétaire, test de SHA-3 / SHAKE (P1 = algorithme)
 
     static final byte PIN_REFERENCE = (byte) 0x80;    // P2 des commandes PIN
 
@@ -60,6 +65,11 @@ public final class PqcApplet extends Applet implements ExtendedLength {
     static final byte FLAG_DEFAULT_PIN = (byte) 0x01;
     static final byte FLAG_PIN_VALIDATED = (byte) 0x02;
 
+    // --- Champ « algorithmes » de GET INFO ---------------------------------------------------
+    static final byte ALGO_ML_KEM_768 = (byte) 0x01;
+    static final byte ALGO_ML_DSA_44 = (byte) 0x02;
+    static final byte ALGO_KECCAK = (byte) 0x10;      // SHA3-256, SHA3-512, SHAKE128, SHAKE256
+
     // --- Tampon d'échange --------------------------------------------------------------------
     /**
      * Taille du tampon d'échange en RAM. Dimensionné pour ML-KEM-768 : clé d'encapsulation
@@ -72,11 +82,13 @@ public final class PqcApplet extends Applet implements ExtendedLength {
 
     private final OwnerPIN pin;
     private final byte[] ioBuffer;
+    private final Keccak keccak;
     private boolean defaultPin;
 
     private PqcApplet(byte[] bArray, short bOffset, byte bLength) {
         pin = new OwnerPIN(PIN_TRY_LIMIT, PIN_MAX_LENGTH);
         ioBuffer = JCSystem.makeTransientByteArray(IO_BUFFER_SIZE, JCSystem.CLEAR_ON_DESELECT);
+        keccak = new Keccak();
         initPin(bArray, bOffset, bLength);
     }
 
@@ -147,6 +159,9 @@ public final class PqcApplet extends Applet implements ExtendedLength {
                 case INS_ECHO:
                     echo(apdu);
                     return;
+                case INS_HASH:
+                    hash(apdu);
+                    return;
                 default:
                     ISOException.throwIt(ISO7816.SW_INS_NOT_SUPPORTED);
             }
@@ -172,7 +187,7 @@ public final class PqcApplet extends Applet implements ExtendedLength {
         buf[2] = flags;
         buf[3] = pin.getTriesRemaining();
         Util.setShort(buf, (short) 4, IO_BUFFER_SIZE);
-        buf[6] = (byte) 0x00; // algorithmes : aucun au jalon 0 (bit 0 = ML-KEM-768, bit 1 = ML-DSA-44)
+        buf[6] = ALGO_KECCAK;
         apdu.setOutgoingAndSend((short) 0, (short) 7);
     }
 
@@ -220,6 +235,47 @@ public final class PqcApplet extends Applet implements ExtendedLength {
     private void echo(APDU apdu) {
         short len = receiveIntoIoBuffer(apdu);
         sendFromIoBuffer(apdu, len);
+    }
+
+    /**
+     * HASH (80 10 P1 00) — commande de test, sans PIN : à retirer d'une applet de production.
+     * P1 = algorithme (0 SHA3-256, 1 SHA3-512, 2 SHAKE128, 3 SHAKE256).
+     * Données : message ; pour SHAKE, précédé de la longueur de sortie voulue sur 2 octets.
+     */
+    private void hash(APDU apdu) {
+        byte[] buf = apdu.getBuffer();
+        byte alg = buf[ISO7816.OFFSET_P1];
+        if (buf[ISO7816.OFFSET_P2] != 0) {
+            ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
+        }
+        short len = receiveIntoIoBuffer(apdu);
+        short msgOff = 0;
+        short outLen = 0;
+        switch (alg) {
+            case Keccak.SHA3_256:
+                outLen = Keccak.SHA3_256_LENGTH;
+                break;
+            case Keccak.SHA3_512:
+                outLen = Keccak.SHA3_512_LENGTH;
+                break;
+            case Keccak.SHAKE128:
+            case Keccak.SHAKE256:
+                if (len < 2) {
+                    ISOException.throwIt(ISO7816.SW_WRONG_LENGTH);
+                }
+                outLen = Util.getShort(ioBuffer, (short) 0);
+                if (outLen <= 0 || outLen > IO_BUFFER_SIZE) {
+                    ISOException.throwIt(ISO7816.SW_WRONG_DATA);
+                }
+                msgOff = 2;
+                break;
+            default:
+                ISOException.throwIt(ISO7816.SW_INCORRECT_P1P2);
+        }
+        keccak.init(alg);
+        keccak.absorb(ioBuffer, msgOff, (short) (len - msgOff));
+        keccak.squeeze(ioBuffer, (short) 0, outLen);  // le message n'est plus utile : on réutilise le tampon
+        sendFromIoBuffer(apdu, outLen);
     }
 
     // --- Utilitaires d'E/S -----------------------------------------------------------------
